@@ -24,7 +24,6 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v --tb=long
-        continue-on-error: true
 
       - name: Show result
         if: always()
