@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from dotenv import load_dotenv
 from ai_analyzer import safe_analyze
 from flaky_detector import detect_flaky, generate_deploy_summary
+from slack_notifier import send_failure_alert, send_flaky_alert, send_deploy_summary
 import sqlite3
 import requests
 import zipfile
@@ -156,5 +157,13 @@ async def github_webhook(request: Request):
     print(f"\n📊 DEPLOY SUMMARY:")
     print(f"{summary}")
 
-    print("\nDone. Slack notification coming in Day 5.")
+    # Step 7 — Send Slack notifications
+    send_failure_alert(analysis, str(run_id), repo)
+
+    if flaky.get("is_flaky"):
+        send_flaky_alert(flaky, repo)
+
+    send_deploy_summary(summary, repo)
+
+    print("\nDone. All notifications sent!")
     return {"status": "received", "run_id": run_id, "analysis": analysis}
