@@ -3,6 +3,6 @@ uvicorn
 pytest
 requests
 python-dotenv
-anthropic 
+groq 
 slack-sdk
 PyGithub

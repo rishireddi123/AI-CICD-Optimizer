@@ -1,7 +1,6 @@
-# webhook_server.py
-
 from fastapi import FastAPI, Request
 from dotenv import load_dotenv
+from ai_analyzer import safe_analyze
 import sqlite3
 import requests
 import zipfile
@@ -29,6 +28,9 @@ def init_db():
             repo      TEXT,
             status    TEXT,
             log_text  TEXT,
+            root_cause TEXT,
+            fix_suggestion TEXT,
+            severity  TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -36,15 +38,25 @@ def init_db():
     conn.close()
     print("Database ready.")
 
-def save_to_db(run_id, repo, log_text):
+def save_to_db(run_id, repo, log_text, analysis):
     conn = sqlite3.connect("pipeline.db")
     conn.execute(
-        "INSERT INTO runs (run_id, repo, status, log_text) VALUES (?,?,?,?)",
-        (str(run_id), repo, "failure", log_text)
+        """INSERT INTO runs 
+        (run_id, repo, status, log_text, root_cause, fix_suggestion, severity) 
+        VALUES (?,?,?,?,?,?,?)""",
+        (
+            str(run_id),
+            repo,
+            "failure",
+            log_text,
+            analysis["root_cause"],
+            analysis["fix_suggestion"],
+            analysis["severity"]
+        )
     )
     conn.commit()
     conn.close()
-    print(f"Saved run {run_id} to database.")
+    print(f"Saved run {run_id} with AI analysis to database.")
 
 # ──────────────────────────────────────────
 # 2. FETCH LOG FROM GITHUB
@@ -63,13 +75,11 @@ def fetch_log(run_id, repo):
         print(f"Failed to fetch log: {resp.status_code} {resp.text}")
         return "Log unavailable."
 
-    # Unzip the log file
     z = zipfile.ZipFile(io.BytesIO(resp.content))
     full_log = ""
     for name in z.namelist():
         full_log += z.read(name).decode("utf-8", errors="ignore")
 
-    # Clean ANSI color codes and timestamps
     clean = re.sub(r'\x1b\[[0-9;]*m', '', full_log)
     clean = re.sub(r'^\d{4}-\d{2}-\d{2}T[\d:.]+Z ', '', clean, flags=re.M)
 
@@ -109,10 +119,26 @@ async def github_webhook(request: Request):
     if conclusion != "failure":
         return {"status": "ignored", "reason": f"conclusion was {conclusion}"}
 
-    print("FAILURE DETECTED — fetching log...")
+    print("FAILURE DETECTED — starting full analysis pipeline...")
 
+    # Step 1 — Fetch the log
     log_text = fetch_log(run_id, repo)
-    save_to_db(run_id, repo, log_text)
 
-    print("Done. Log saved. AI analysis coming in Day 3.")
-    return {"status": "received", "run_id": run_id}
+    # Step 2 — Analyze with AI
+    print("Sending log to AI...")
+    analysis = safe_analyze(log_text)
+
+    # Step 3 — Print the diagnosis
+    print("\n========= AI DIAGNOSIS =========")
+    print(f"Root cause:  {analysis['root_cause']}")
+    print(f"Failed step: {analysis['failed_step']}")
+    print(f"Fix:         {analysis['fix_suggestion']}")
+    print(f"Severity:    {analysis['severity']}")
+    print(f"Confidence:  {analysis['confidence']}")
+    print("================================\n")
+
+    # Step 4 — Save everything to DB
+    save_to_db(run_id, repo, log_text, analysis)
+
+    print("Done. Slack notification coming in Day 5.")
+    return {"status": "received", "run_id": run_id, "analysis": analysis}
