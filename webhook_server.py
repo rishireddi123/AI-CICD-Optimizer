@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from dotenv import load_dotenv
 from ai_analyzer import safe_analyze
+from flaky_detector import detect_flaky, generate_deploy_summary
 import sqlite3
 import requests
 import zipfile
@@ -140,5 +141,20 @@ async def github_webhook(request: Request):
     # Step 4 — Save everything to DB
     save_to_db(run_id, repo, log_text, analysis)
 
-    print("Done. Slack notification coming in Day 5.")
+    # Step 5 — Check for flaky tests
+    print("\nChecking for flaky test pattern...")
+    flaky = detect_flaky(repo)
+    if flaky.get("is_flaky"):
+        print(f"⚠️  FLAKY TEST DETECTED!")
+        print(f"Likely cause:  {flaky.get('likely_cause')}")
+        print(f"Recommendation: {flaky.get('recommendation')}")
+    else:
+        print(f"No flaky pattern detected.")
+
+    # Step 6 — Generate deploy summary
+    summary = generate_deploy_summary(repo)
+    print(f"\n📊 DEPLOY SUMMARY:")
+    print(f"{summary}")
+
+    print("\nDone. Slack notification coming in Day 5.")
     return {"status": "received", "run_id": run_id, "analysis": analysis}
